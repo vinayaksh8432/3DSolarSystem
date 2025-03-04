@@ -1,10 +1,22 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect, useMemo, Suspense } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Stars, useTexture } from "@react-three/drei";
 import { db } from "../firebase/config";
 import { collection, addDoc, getDocs } from "firebase/firestore";
 import { DoubleSide } from "three";
 import * as THREE from "three";
+
+// Default textures mapping
+const defaultTextures = {
+  Mercury: "mercury.jpg",
+  Venus: "venus.jpg",
+  Earth: "earth.jpg",
+  Mars: "mars.jpg",
+  Jupiter: "jupiter.jpg",
+  Saturn: "saturn.jpg",
+  Uranus: "uranus.jpg",
+  Neptune: "neptune.jpg"
+};
 
 const createRingMesh = (texture, planetSize) => {
     const ringGeometry = new THREE.RingGeometry(0.4, 1, 128);
@@ -20,15 +32,15 @@ const createRingMesh = (texture, planetSize) => {
         <mesh
             geometry={ringGeometry}
             rotation={[-Math.PI / 2, Math.PI / 6, 0]}
-            scale={[planetSize * 2.5, planetSize * 2.5, planetSize * 2.5]} // Size relative to planet
+            scale={[planetSize * 2.5, planetSize * 2.5, planetSize * 2.5]}
         >
             <meshPhongMaterial
                 map={texture}
                 side={DoubleSide}
                 transparent={true}
-                opacity={0.4} // Increased from 0.9 to 1 for full opacity
-                emissive={"#ffffff"} // White glow for brightness
-                emissiveIntensity={0.2} // Subtle glow to enhance brightness
+                opacity={0.4}
+                emissive={"#ffffff"}
+                emissiveIntensity={0.2}
             />
         </mesh>
     );
@@ -41,13 +53,20 @@ const Planet = ({
     orbitRadius,
     speed,
     ringTexture,
+    name
 }) => {
     const meshRef = useRef();
     const [rotation, setRotation] = useState(0);
-    const planetTexture = useTexture(`/textures/${texture}`);
-    const ringTextureMap = ringTexture
-        ? useTexture(`/textures/${ringTexture}`)
-        : null;
+
+    // Calculate texture paths
+    const textureToUse = texture || defaultTextures[name] || "earth.jpg";
+    const ringTextureToUse = name === "Saturn" ? (ringTexture || "saturn-ring.png") : null;
+
+    // Load textures at the top level
+    const props = useTexture({
+        planetMap: `/textures/${textureToUse}`,
+        ...(ringTextureToUse ? { ringMap: `/textures/${ringTextureToUse}` } : {})
+    });
 
     useFrame(() => {
         const newRotation = rotation + speed;
@@ -58,31 +77,27 @@ const Planet = ({
         }
     });
 
-    if (ringTexture && !ringTextureMap) {
-        console.log(`Failed to load ring texture: /textures/${ringTexture}`);
-    }
-
     return (
         <group ref={meshRef} position={position}>
-            {/* Planet */}
             <mesh>
                 <sphereGeometry args={[size, 32, 32]} />
-                <meshStandardMaterial map={planetTexture} />
+                <meshStandardMaterial map={props.planetMap} />
             </mesh>
-            {/* Saturn Rings */}
-            {ringTextureMap && createRingMesh(ringTextureMap, size)}
+            {name === "Saturn" && props.ringMap && createRingMesh(props.ringMap, size)}
         </group>
     );
 };
 
 const Sun = () => {
-    const sunTexture = useTexture("/textures/sun.jpg");
+    const props = useTexture({
+        map: "/textures/sun.jpg"
+    });
 
     return (
         <mesh position={[0, 0, 0]}>
             <sphereGeometry args={[2, 32, 32]} />
             <meshStandardMaterial
-                map={sunTexture}
+                map={props.map}
                 emissive="yellow"
                 emissiveIntensity={0.5}
             />
@@ -151,40 +166,84 @@ const defaultPlanets = [
     },
 ];
 
+// Add a loading component
+const LoadingPlanet = ({ size, position }) => {
+    return (
+        <mesh position={position}>
+            <sphereGeometry args={[size, 16, 16]} />
+            <meshStandardMaterial color="#666666" wireframe />
+        </mesh>
+    );
+};
+
 export const SolarSystem = () => {
     const [planets, setPlanets] = useState(defaultPlanets);
     const [selectedPlanet, setSelectedPlanet] = useState(null);
 
     const savePlanetConfig = async () => {
         try {
-            const docRef = await addDoc(collection(db, "configurations"), {
-                planets,
+            // Clean and validate planet data before saving
+            const cleanPlanets = planets.map(planet => ({
+                name: planet.name,
+                size: Number(planet.size) || 1,
+                texture: planet.texture || defaultTextures[planet.name],
+                orbitRadius: Number(planet.orbitRadius) || 10,
+                speed: Number(planet.speed) || 0.01,
+                // Only include ringTexture for Saturn
+                ...(planet.name === "Saturn" ? { ringTexture: "saturn-ring.png" } : {})
+            }));
+
+            const configData = {
+                planets: cleanPlanets,
                 timestamp: new Date(),
-            });
+                name: `Solar System Configuration ${new Date().toLocaleString()}`
+            };
+
+            const docRef = await addDoc(collection(db, "configurations"), configData);
             console.log("Configuration saved with ID: ", docRef.id);
+            
         } catch (error) {
             console.error("Error saving configuration: ", error);
+            
         }
     };
 
     const loadConfigurations = async () => {
         try {
-            const querySnapshot = await getDocs(
-                collection(db, "configurations")
-            );
+            const querySnapshot = await getDocs(collection(db, "configurations"));
             const configs = [];
+            
             querySnapshot.forEach((doc) => {
-                configs.push({ id: doc.id, ...doc.data() });
+                const data = doc.data();
+                // Ensure all required properties are present and valid
+                const validPlanets = data.planets.map(planet => ({
+                    name: planet.name,
+                    size: Number(planet.size) || 1,
+                    texture: planet.texture || defaultTextures[planet.name],
+                    orbitRadius: Number(planet.orbitRadius) || 10,
+                    speed: Number(planet.speed) || 0.01,
+                    // Only include ringTexture for Saturn
+                    ...(planet.name === "Saturn" ? { ringTexture: "saturn-ring.png" } : {})
+                }));
+
+                configs.push({
+                    id: doc.id,
+                    name: data.name || `Configuration ${doc.id}`,
+                    timestamp: data.timestamp,
+                    planets: validPlanets
+                });
             });
-            // Load the most recent configuration
+
             if (configs.length > 0) {
                 const sortedConfigs = configs.sort(
-                    (a, b) => b.timestamp - a.timestamp
+                    (a, b) => b.timestamp.toMillis() - a.timestamp.toMillis()
                 );
                 setPlanets(sortedConfigs[0].planets);
-            }
+                
+            } 
         } catch (error) {
             console.error("Error loading configurations: ", error);
+      
         }
     };
 
@@ -306,14 +365,25 @@ export const SolarSystem = () => {
                     saturation={0}
                     fade
                 />
-                <Sun />
-                {planets.map((planet) => (
-                    <Planet
-                        key={planet.name}
-                        {...planet}
-                        position={[planet.orbitRadius, 0, 0]}
-                    />
-                ))}
+                <Suspense fallback={null}>
+                    <Sun />
+                    {planets.map((planet) => (
+                        <Suspense 
+                            key={planet.name} 
+                            fallback={
+                                <LoadingPlanet 
+                                    size={planet.size} 
+                                    position={[planet.orbitRadius, 0, 0]} 
+                                />
+                            }
+                        >
+                            <Planet
+                                {...planet}
+                                position={[planet.orbitRadius, 0, 0]}
+                            />
+                        </Suspense>
+                    ))}
+                </Suspense>
                 <OrbitControls />
             </Canvas>
         </div>
