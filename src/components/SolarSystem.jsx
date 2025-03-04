@@ -19,7 +19,7 @@ const createRingMesh = (texture, planetSize) => {
     return (
         <mesh
             geometry={ringGeometry}
-            rotation={[-Math.PI / 2, Math.PI / 6, 0]} // Realistic tilt
+            rotation={[-Math.PI / 2, Math.PI / 6, 0]}
             scale={[planetSize * 2.5, planetSize * 2.5, planetSize * 2.5]} // Size relative to planet
         >
             <meshPhongMaterial
