@@ -46,6 +46,93 @@ const createRingMesh = (texture, planetSize) => {
     );
 };
 
+const Sun = () => {
+    const sunRef = useRef();
+    const props = useTexture({
+        map: "/textures/sun.jpg"
+    });
+
+    useFrame(() => {
+        if (sunRef.current) {
+            // Rotate sun slowly on its axis
+            sunRef.current.rotation.y += 0.001;
+        }
+    });
+
+    return (
+        <group>
+            {/* Main sun sphere */}
+            <mesh ref={sunRef} position={[0, 0, 0]}>
+                <sphereGeometry args={[2, 64, 64]} />
+                <meshStandardMaterial
+                    map={props.map}
+                    emissive="#FF4500"
+                    emissiveIntensity={2}
+                />
+            </mesh>
+            
+            {/* Stable light sources */}
+            <pointLight 
+                intensity={10} 
+                distance={100} 
+                decay={1}
+                color="#ffffff"
+            />
+            
+            {/* Sun glow effect */}
+            <mesh position={[0, 0, 0]}>
+                <sphereGeometry args={[2.2, 32, 32]} />
+                <meshBasicMaterial
+                    color="#FF4500"
+                    transparent
+                    opacity={0.2}
+                />
+            </mesh>
+        </group>
+    );
+};
+
+// Add OrbitRing component for visualizing orbits
+const OrbitRing = ({ radius, color = "#ffffff" }) => {
+    const ringRef = useRef();
+
+    useFrame(() => {
+        if (ringRef.current) {
+            // Subtle pulse effect
+            ringRef.current.material.opacity = 0.3 + Math.sin(Date.now() * 0.001) * 0.1;
+        }
+    });
+
+    return (
+        <>
+            {/* Main orbit ring */}
+            <mesh rotation={[-Math.PI / 2, 0, 0]} ref={ringRef}>
+                <ringGeometry args={[radius, radius + 0.05, 180]} />
+                <meshBasicMaterial
+                    color={color}
+                    transparent
+                    opacity={0.3}
+                    side={DoubleSide}
+                    depthWrite={false}
+                />
+            </mesh>
+            
+            {/* Glow effect */}
+            <mesh rotation={[-Math.PI / 2, 0, 0]}>
+                <ringGeometry args={[radius - 0.01, radius + 0.06, 180]} />
+                <meshBasicMaterial
+                    color={color}
+                    transparent
+                    opacity={0.1}
+                    side={DoubleSide}
+                    depthWrite={false}
+                    blending={THREE.AdditiveBlending}
+                />
+            </mesh>
+        </>
+    );
+};
+
 const Planet = ({
     position,
     size,
@@ -56,53 +143,122 @@ const Planet = ({
     name
 }) => {
     const meshRef = useRef();
+    const planetRef = useRef();
     const [rotation, setRotation] = useState(0);
+    const [textureLoaded, setTextureLoaded] = useState(false);
 
     // Calculate texture paths
     const textureToUse = texture || defaultTextures[name] || "earth.jpg";
     const ringTextureToUse = name === "Saturn" ? (ringTexture || "saturn-ring.png") : null;
 
+    // Set rotation speeds based on planet
+    const rotationSpeed = useMemo(() => {
+        const speeds = {
+            Mercury: 0.002,
+            Venus: -0.0018,    // Venus rotates backwards!
+            Earth: 0.002,
+            Mars: 0.0018,
+            Jupiter: 0.004,    // Gas giants rotate faster
+            Saturn: 0.0038,
+            Uranus: 0.003,
+            Neptune: 0.003
+        };
+        return speeds[name] || 0.002;
+    }, [name]);
+
+    // Define orbit colors for each planet
+    const orbitColor = useMemo(() => {
+        const colors = {
+            Mercury: "#A9A9A9", // Brighter gray
+            Venus: "#FFD700",   // Brighter gold
+            Earth: "#4169E1",   // Royal blue
+            Mars: "#FF6347",    // Brighter red-orange
+            Jupiter: "#F4A460",  // Brighter brown
+            Saturn: "#FFD700",   // Bright gold
+            Uranus: "#00CED1",   // Bright turquoise
+            Neptune: "#1E90FF"   // Brighter blue
+        };
+        return colors[name] || "#ffffff";
+    }, [name]);
+
     // Load textures at the top level
     const props = useTexture({
-        planetMap: `/textures/${textureToUse}`,
+        map: `/textures/${textureToUse}`,
         ...(ringTextureToUse ? { ringMap: `/textures/${ringTextureToUse}` } : {})
+    }, 
+    // Success callback
+    () => {
+        setTextureLoaded(true);
     });
 
     useFrame(() => {
+        // Update orbit position
         const newRotation = rotation + speed;
         setRotation(newRotation);
+        
         if (meshRef.current) {
+            // Update orbit position
             meshRef.current.position.x = Math.cos(newRotation) * orbitRadius;
             meshRef.current.position.z = Math.sin(newRotation) * orbitRadius;
         }
+        
+        if (planetRef.current) {
+            // Rotate planet on its axis
+            planetRef.current.rotation.y += rotationSpeed;
+            
+            // Tilt the planet (especially for Earth-like planets)
+            if (name === "Earth") {
+                planetRef.current.rotation.x = 0.41; // 23.5 degrees axial tilt
+            } else if (name === "Mars") {
+                planetRef.current.rotation.x = 0.44; // 25 degrees axial tilt
+            } else if (name === "Saturn") {
+                planetRef.current.rotation.x = 0.47; // 27 degrees axial tilt
+            }
+        }
     });
 
-    return (
-        <group ref={meshRef} position={position}>
-            <mesh>
-                <sphereGeometry args={[size, 32, 32]} />
-                <meshStandardMaterial map={props.planetMap} />
+    if (!textureLoaded) {
+        return (
+            <mesh position={position}>
+                <sphereGeometry args={[size, 16, 16]} />
+                <meshStandardMaterial color="#666666" />
             </mesh>
-            {name === "Saturn" && props.ringMap && createRingMesh(props.ringMap, size)}
-        </group>
-    );
-};
-
-const Sun = () => {
-    const props = useTexture({
-        map: "/textures/sun.jpg"
-    });
+        );
+    }
 
     return (
-        <mesh position={[0, 0, 0]}>
-            <sphereGeometry args={[2, 32, 32]} />
-            <meshStandardMaterial
-                map={props.map}
-                emissive="yellow"
-                emissiveIntensity={0.5}
-            />
-            <pointLight intensity={1.5} distance={100} />
-        </mesh>
+        <>
+            {/* Orbit Ring */}
+            <OrbitRing radius={orbitRadius} color={orbitColor} />
+            
+            {/* Planet Group */}
+            <group ref={meshRef} position={position}>
+                <group ref={planetRef}>
+                    <mesh>
+                        <sphereGeometry args={[size, 32, 32]} />
+                        <meshStandardMaterial
+                            map={props.map}
+                            metalness={0.3}
+                            roughness={0.7}
+                        />
+                    </mesh>
+                    {name === "Saturn" && props.ringMap && (
+                        <mesh
+                            rotation={[-Math.PI / 2, Math.PI / 6, 0]}
+                            scale={[size * 2.5, size * 2.5, size * 2.5]}
+                        >
+                            <ringGeometry args={[0.4, 1, 64]} />
+                            <meshStandardMaterial
+                                map={props.ringMap}
+                                transparent
+                                opacity={0.8}
+                                side={DoubleSide}
+                            />
+                        </mesh>
+                    )}
+                </group>
+            </group>
+        </>
     );
 };
 
@@ -355,8 +511,16 @@ export const SolarSystem = () => {
                 </button>
             </div>
 
-            <Canvas camera={{ position: [0, 20, 25], fov: 60 }}>
-                <ambientLight intensity={0.3} />
+            <Canvas 
+                camera={{ position: [0, 20, 25], fov: 60 }}
+            >
+                <color attach="background" args={['#000010']} />
+                <fog attach="fog" args={['#000010', 30, 100]} />
+                
+                {/* Basic lighting setup */}
+                <ambientLight intensity={0.2} />
+                <pointLight position={[10, 10, 10]} intensity={0.5} />
+                
                 <Stars
                     radius={100}
                     depth={50}
@@ -365,6 +529,7 @@ export const SolarSystem = () => {
                     saturation={0}
                     fade
                 />
+                
                 <Suspense fallback={null}>
                     <Sun />
                     {planets.map((planet) => (
