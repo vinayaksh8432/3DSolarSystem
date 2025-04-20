@@ -1,14 +1,13 @@
-import React from 'react';
-import { SolarSystem } from './components/SolarSystem';
-import { FirebaseTestPanel } from './components/FirebaseTestPanel';
-import './App.css';
+import React from "react";
+import { SolarSystem } from "./components/SolarSystem";
+import "./App.css";
 
 function App() {
-  return (
-    <div className="App">
-      <SolarSystem />
-    </div>
-  );
+    return (
+        <div>
+            <SolarSystem />
+        </div>
+    );
 }
 
 export default App;
